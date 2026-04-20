@@ -1,0 +1,21 @@
+# ── Core API framework ──
+fastapi
+uvicorn[standard]
+python-multipart
+# ── ASR ──
+openai-whisper
+# ── LLM (free) ──
+groq
+# ── TTS (local, free) ──
+TTS
+# ── Audio processing ──
+soundfile
+numpy
+librosa
+# ── Frontend ──
+streamlit
+# ── Utilities ──
+python-dotenv
+pydantic
+requests
+httpx

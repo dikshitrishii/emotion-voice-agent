@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+
+  # ── Backend: FastAPI + Whisper + Groq + Coqui TTS ──────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: voice-agent-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env                          # loads GROQ_API_KEY automatically
+    volumes:
+      - whisper-cache:/root/.cache/whisper          # Whisper model weights (~140MB)
+      - coqui-cache:/root/.local/share/tts          # Coqui model weights (~150MB)
+      - /tmp:/tmp                                   # shared temp dir for TTS wav files
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s              # give extra time for model downloads on first run
+
+  # ── Frontend: Streamlit ─────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: voice-agent-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      # Point frontend at the backend service by container name
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy   # wait for backend to pass health check
+    restart: unless-stopped
+
+# ── Named volumes for model weight persistence ──────────────
+volumes:
+  whisper-cache:
+  coqui-cache:

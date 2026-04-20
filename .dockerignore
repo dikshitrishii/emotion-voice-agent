@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment files (never bake secrets into images)
+.env
+
+# macOS
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Cached model weights (handled by Docker volumes, not image layers)
+~/.cache/whisper/
+~/.local/share/tts/
+
+# Temp files
+/tmp/
+*.wav
+*.mp3
+
+# IDE
+.vscode/
+.idea/
+
+# Docs (not needed in container)
+README.md

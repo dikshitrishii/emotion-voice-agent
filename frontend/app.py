@@ -1,10 +1,8 @@
-import os
 import streamlit as st
 import requests
 import base64
 
-# Reads from env var when running in Docker, falls back to localhost for local dev
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = "http://localhost:8000"
 
 st.set_page_config(page_title="Emotion Voice Agent", page_icon="🎙️", layout="centered")
 st.title("🎙️ Emotion-Aware Voice Agent")
@@ -17,7 +15,7 @@ if "messages" not in st.session_state:
 if "last_audio_id" not in st.session_state:
     st.session_state.last_audio_id = None
 if "pending_audio" not in st.session_state:
-    st.session_state.pending_audio = None
+    st.session_state.pending_audio = None  # stores base64 string to play
 
 EMOTION_EMOJI = {
     "happy": "😊", "sad": "😢", "neutral": "😐",
@@ -32,6 +30,7 @@ for msg in st.session_state.messages:
             st.markdown(f"{EMOTION_EMOJI.get(emotion, '')} *{emotion}*")
         st.write(msg["content"])
 
+# ── Play pending audio (rendered AFTER messages, BEFORE input) ──
 # ── Play pending audio ──
 if st.session_state.pending_audio:
     audio_bytes = base64.b64decode(st.session_state.pending_audio)
@@ -87,6 +86,7 @@ if audio_input is not None:
                 st.stop()
             audio_b64 = resp.json()["audio_base64"]
 
+        # Save to history
         st.session_state.history.append({"role": "assistant", "content": response_text})
         st.session_state.messages.append({
             "role": "assistant",
@@ -94,5 +94,6 @@ if audio_input is not None:
             "emotion": emotion
         })
 
+        # Store audio in session state — renders on next rerun ABOVE the input widget
         st.session_state.pending_audio = audio_b64
         st.rerun()

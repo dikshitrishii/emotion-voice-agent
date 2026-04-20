@@ -4,8 +4,8 @@ WORKDIR /app
 
 # Streamlit only needs requests + streamlit itself
 RUN pip install --no-cache-dir \
-    streamlit==1.38.0 \
-    requests==2.32.3
+    streamlit \
+    requests
 
 # Copy frontend source
 COPY frontend/ ./frontend/

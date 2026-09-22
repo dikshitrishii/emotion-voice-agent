@@ -36,3 +36,17 @@ env/
 
 # Docs (not needed in container)
 README.md
+
+# Dev/test-only — not needed in the runtime image
+notebooks/
+tests/
+benchmarks/
+scripts/
+.github/
+.pre-commit-config.yaml
+requirements-dev.txt
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/

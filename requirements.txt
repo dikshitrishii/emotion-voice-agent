@@ -6,6 +6,7 @@ python-multipart
 openai-whisper
 # ── LLM (free) ──
 groq
+tenacity
 # ── TTS (local, free) ──
 TTS
 # ── Audio processing ──
@@ -14,8 +15,12 @@ numpy
 librosa
 # ── Frontend ──
 streamlit
+# ── Resilience / observability / security ──
+slowapi
+prometheus-client
 # ── Utilities ──
 python-dotenv
 pydantic
+pydantic-settings
 requests
 httpx

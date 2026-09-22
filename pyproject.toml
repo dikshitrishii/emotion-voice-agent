@@ -1,0 +1,29 @@
+[project]
+name = "emotion-voice-agent"
+version = "2.0.0"
+description = "Emotion-aware, real-time voice AI agent (ASR -> LLM -> TTS)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=backend --cov-report=term-missing"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+# E501: line length handled by formatter, not a lint blocker.
+# B008: FastAPI's idiomatic `= File(...)` / `= Depends(...)` default pattern
+# intentionally calls a function in the default — that's how DI works here.
+ignore = ["E501", "B008"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = ["tests/"]
+
+[tool.coverage.run]
+omit = ["tests/*"]

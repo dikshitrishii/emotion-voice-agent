@@ -1,32 +1,95 @@
-# I have to generate the code for the ASR (Automatic Speech Recognition) service. This service will be responsible for converting audio input into text. I will use a popular Whisper Speech Recognition model to implement this functionality imported from config file.
-import os, tempfile
-# what is the purpose of tempfile module in python?The `tempfile` module in Python is used to create temporary files and directories. It provides a convenient way to generate temporary file names and manage temporary files without the need for manual cleanup. The module ensures that temporary files are created securely and are automatically deleted when they are no longer needed. This is particularly useful for tasks that require temporary storage of data, such as when processing audio files for ASR (Automatic Speech Recognition) services, where you might need to store audio data temporarily before processing it.
+"""ASR (Automatic Speech Recognition) service — local Whisper transcription.
 
-import whisper
-# Model is loaded once at import time — not on every request
-# This is critical for latency. Cold load takes ~5s; subsequent calls are fast.
+The model is loaded once at first use (lazy singleton), not per request:
+cold load is ~5s, so loading it in the request path would put a 5s tax on
+whichever unlucky user hits the service first *and* block every concurrent
+request behind a global import lock. Loading lazily-but-once keeps startup
+fast while still only paying the cost a single time.
+"""
+from __future__ import annotations
+
+import os
+import tempfile
+import time
+
+import soundfile as sf
+
+from backend.config import get_settings
+from backend.core.exceptions import AudioTooLargeError, InvalidAudioError, TranscriptionError
+from backend.core.logging import get_logger, log_extra
+from backend.core.vad import trim_silence
+
+logger = get_logger(__name__)
+
 _model = None
+
+
 def load_model():
     global _model
     if _model is None:
-        # choosing from config file
-        from backend.config import WHISPER_MODEL
-        print(f"[ASR] Loading Whisper model: {WHISPER_MODEL}")
-        _model = whisper.load_model(WHISPER_MODEL)
+        import whisper  # imported lazily — heavy, and not needed for unit tests
+
+        settings = get_settings()
+        logger.info(f"loading whisper model: {settings.whisper_model}")
+        _model = whisper.load_model(settings.whisper_model)
     return _model
 
-def transcribe(audio_bytes: bytes) -> str:
+
+def _validate_size(audio_bytes: bytes) -> None:
+    settings = get_settings()
+    size_mb = len(audio_bytes) / (1024 * 1024)
+    if size_mb > settings.max_audio_mb:
+        raise AudioTooLargeError(
+            f"Audio is {size_mb:.1f}MB, exceeds the {settings.max_audio_mb}MB limit"
+        )
+    if len(audio_bytes) == 0:
+        raise InvalidAudioError("Empty audio payload")
+
+
+def transcribe(audio_bytes: bytes) -> tuple[str, float]:
+    """Transcribe raw audio bytes (WAV/MP3/etc). Returns (text, duration_s).
+
+    Applies energy-based silence trimming before running Whisper, which
+    shrinks typical browser-mic clips (long lead-in/trail-off silence) and
+    reduces both latency and the chance Whisper hallucinates text from
+    near-silent audio.
     """
-    Accepts raw audio bytes (WAV/MP3/etc from the frontend),
-    writes to a temp file, runs Whisper, returns transcript string.
-    """
+    _validate_size(audio_bytes)
     model = load_model()
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
         temp.write(audio_bytes)
         tmp_path = temp.name
 
+    trimmed_path = tmp_path + ".trimmed.wav"
     try:
-        result = model.transcribe(tmp_path, fp16=False, language="en")
-        return result["text"].strip() # type: ignore
+        try:
+            audio, sr = sf.read(tmp_path, dtype="float32")
+        except Exception as exc:  # noqa: BLE001 - surfaced as a clean 422
+            raise InvalidAudioError(f"Could not decode audio: {exc}") from exc
+
+        trimmed = trim_silence(audio, sr)
+        duration_s = round(len(trimmed) / sr, 3) if sr else 0.0
+
+        run_path = tmp_path
+        if trimmed.size != audio.size:
+            sf.write(trimmed_path, trimmed, sr)
+            run_path = trimmed_path
+
+        start = time.perf_counter()
+        try:
+            result = model.transcribe(run_path, fp16=False, language="en")
+        except Exception as exc:  # noqa: BLE001
+            raise TranscriptionError(f"Whisper transcription failed: {exc}") from exc
+        latency_ms = round((time.perf_counter() - start) * 1000, 1)
+
+        text = result["text"].strip()
+        logger.info(
+            "transcription complete",
+            extra=log_extra(latency_ms=latency_ms, duration_s=duration_s, chars=len(text)),
+        )
+        return text, duration_s
     finally:
-        os.unlink(tmp_path)  # always clean up the temp file
+        for p in (tmp_path, trimmed_path):
+            if os.path.exists(p):
+                os.unlink(p)

@@ -1,0 +1,22 @@
+# Lightweight dev/test dependencies — deliberately does NOT pull in
+# requirements.txt's heavy ML packages (openai-whisper, TTS, torch).
+# Tests mock the model-loading boundary (asr.load_model / tts.get_tts),
+# so the full test suite runs in seconds without multi-GB downloads.
+# Install requirements.txt separately when you need the real models.
+fastapi
+pydantic
+pydantic-settings
+httpx
+tenacity
+slowapi
+prometheus-client
+soundfile
+numpy
+librosa
+python-dotenv
+python-multipart
+pytest
+pytest-asyncio
+pytest-cov
+ruff
+mypy

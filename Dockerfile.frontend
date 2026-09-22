@@ -2,6 +2,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Streamlit only needs requests + streamlit itself
 RUN pip install --no-cache-dir \
     streamlit \
@@ -10,10 +13,18 @@ RUN pip install --no-cache-dir \
 # Copy frontend source
 COPY frontend/ ./frontend/
 
+# Non-root, same rationale as the backend image.
+RUN useradd --create-home --uid 1000 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8501
 
 # Disable Streamlit's browser auto-open and telemetry in container
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
 CMD ["streamlit", "run", "frontend/app.py", "--server.port=8501", "--server.address=0.0.0.0"]

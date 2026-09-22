@@ -1,4 +1,21 @@
 .env
-backend/services/__pycache__
-backend/__pycache__
+__pycache__/
+*.pyc
 .vscode
+
+# Virtual environment
+.venv/
+venv/
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Benchmark output (regenerated, not source)
+benchmarks/results.json
+
+# macOS
+.DS_Store

@@ -16,6 +16,7 @@ import base64
 import io
 import os
 import tempfile
+import threading
 import time
 from collections import OrderedDict
 
@@ -30,6 +31,9 @@ logger = get_logger(__name__)
 
 _tts = None
 _cache: OrderedDict[tuple[str, str], bytes] = OrderedDict()
+# synthesize() runs in threadpool workers; OrderedDict reordering/eviction
+# isn't atomic, so concurrent requests could corrupt the LRU order.
+_cache_lock = threading.Lock()
 
 
 def get_tts():
@@ -44,18 +48,20 @@ def get_tts():
 
 
 def _cache_get(key: tuple[str, str]) -> bytes | None:
-    if key in _cache:
-        _cache.move_to_end(key)
-        return _cache[key]
-    return None
+    with _cache_lock:
+        if key in _cache:
+            _cache.move_to_end(key)
+            return _cache[key]
+        return None
 
 
 def _cache_put(key: tuple[str, str], value: bytes) -> None:
-    settings = get_settings()
-    _cache[key] = value
-    _cache.move_to_end(key)
-    while len(_cache) > settings.tts_cache_size:
-        _cache.popitem(last=False)
+    max_size = get_settings().tts_cache_size
+    with _cache_lock:
+        _cache[key] = value
+        _cache.move_to_end(key)
+        while len(_cache) > max_size:
+            _cache.popitem(last=False)
 
 
 def synthesize(text: str, emotion: str) -> tuple[bytes, bool]:

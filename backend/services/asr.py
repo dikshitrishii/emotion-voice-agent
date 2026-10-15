@@ -8,6 +8,7 @@ fast while still only paying the cost a single time.
 """
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 import time
@@ -57,25 +58,20 @@ def transcribe(audio_bytes: bytes) -> tuple[str, float]:
     _validate_size(audio_bytes)
     model = load_model()
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
-        temp.write(audio_bytes)
-        tmp_path = temp.name
-
-    trimmed_path = tmp_path + ".trimmed.wav"
+    # Decode straight from memory; only the (trimmed) clip Whisper reads
+    # touches disk, instead of writing the upload and then a trimmed copy.
     try:
-        try:
-            audio, sr = sf.read(tmp_path, dtype="float32")
-        except Exception as exc:  # noqa: BLE001 - surfaced as a clean 422
-            raise InvalidAudioError(f"Could not decode audio: {exc}") from exc
+        audio, sr = sf.read(io.BytesIO(audio_bytes), dtype="float32")
+    except Exception as exc:  # noqa: BLE001 - surfaced as a clean 422
+        raise InvalidAudioError(f"Could not decode audio: {exc}") from exc
 
-        trimmed = trim_silence(audio, sr)
-        duration_s = round(len(trimmed) / sr, 3) if sr else 0.0
+    trimmed = trim_silence(audio, sr)
+    duration_s = round(len(trimmed) / sr, 3) if sr else 0.0
 
-        run_path = tmp_path
-        if trimmed.size != audio.size:
-            sf.write(trimmed_path, trimmed, sr)
-            run_path = trimmed_path
-
+    fd, run_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        sf.write(run_path, trimmed, sr)
         start = time.perf_counter()
         try:
             result = model.transcribe(run_path, fp16=False, language="en")
@@ -90,6 +86,4 @@ def transcribe(audio_bytes: bytes) -> tuple[str, float]:
         )
         return text, duration_s
     finally:
-        for p in (tmp_path, trimmed_path):
-            if os.path.exists(p):
-                os.unlink(p)
+        os.unlink(run_path)

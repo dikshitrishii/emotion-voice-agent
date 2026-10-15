@@ -65,15 +65,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     return Settings()
 
-
-# Backwards-compatible module-level constants (existing code/tests import
-# these names directly from backend.config).
-settings = get_settings()
-GROQ_API_KEY = settings.groq_api_key
-GROQ_MODEL = settings.groq_model
-WHISPER_MODEL = settings.whisper_model
-COQUI_MODEL = settings.coqui_model
-
 # Emotion -> prosody mapping for Coqui (no native emotion control, so we
 # approximate with speech rate + energy as a post-processing proxy).
 EMOTION_STYLE_MAP: dict[str, dict[str, float]] = {

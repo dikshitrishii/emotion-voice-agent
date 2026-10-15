@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, wait_exponential
 
 from backend.config import get_settings
 from backend.core.exceptions import LLMError
@@ -63,7 +63,11 @@ def _get_client():
         from groq import Groq  # imported lazily — not needed in dummy mode/tests
 
         settings = get_settings()
-        _client = Groq(api_key=settings.groq_api_key, timeout=settings.groq_timeout_s)
+        # max_retries=0: the SDK retries twice by default, which stacked under
+        # our own retry gave up to 9 attempts. Retries live only in _call_groq.
+        _client = Groq(
+            api_key=settings.groq_api_key, timeout=settings.groq_timeout_s, max_retries=0
+        )
     return _client
 
 
@@ -77,20 +81,44 @@ def _fallback_reply(user_text: str) -> dict:
     }
 
 
+def _is_retryable(exc: BaseException) -> bool:
+    """Retry transient failures only.
+
+    A 4xx from Groq (bad request, missing/retired model, invalid key) will
+    fail identically on every attempt, so retrying just adds ~3s of backoff
+    before the fallback. 408 (timeout) and 429 (rate limit) are the
+    exceptions: those can succeed on a later attempt. Checked by duck-typing
+    `status_code` so the groq SDK isn't needed at import time.
+    """
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and 400 <= status < 500:
+        return status in (408, 429)
+    return True
+
+
 @retry(
-    stop=stop_after_attempt(3),
+    stop=lambda state: state.attempt_number >= get_settings().groq_max_retries,
     wait=wait_exponential(multiplier=0.5, min=0.5, max=4),
-    retry=retry_if_exception_type(Exception),
+    retry=retry_if_exception(_is_retryable),
     reraise=True,
 )
-def _call_groq(messages: list[dict], model: str, max_tokens: int, temperature: float) -> str:
+def _call_groq(
+    messages: list[dict],
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    json_mode: bool = True,
+) -> str:
     client = _get_client()
+    # Groq rejects json_object mode (400) unless the prompt mentions JSON, so
+    # plain-text callers like summarize() must turn it off.
+    extra = {"response_format": {"type": "json_object"}} if json_mode else {}
     response = client.chat.completions.create(
         model=model,
         messages=messages,
-        response_format={"type": "json_object"},
         temperature=temperature,
         max_tokens=max_tokens,
+        **extra,
     )
     content = response.choices[0].message.content
     if not content:
@@ -108,7 +136,9 @@ def summarize(messages: list[dict]) -> str:
             {"role": "system", "content": "Summarize this conversation snippet in one sentence."},
             {"role": "user", "content": json.dumps(messages)},
         ]
-        raw = _call_groq(prompt, settings.groq_model, max_tokens=80, temperature=0.2)
+        raw = _call_groq(
+            prompt, settings.groq_model, max_tokens=80, temperature=0.2, json_mode=False
+        )
         return raw.strip()
     except Exception as exc:  # noqa: BLE001 - summarization is best-effort
         logger.warning(f"summary generation failed, using heuristic: {exc}")
